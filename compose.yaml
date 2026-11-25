@@ -1,0 +1,123 @@
+# Vision Action Platform — 서비스 5개: postgres · redis · django · celery · fastapi
+# (Docker 자체는 서비스가 아니라 이 5개를 실행하는 환경)
+#
+# 공개 포트 결정
+# - django : 8000 → 브라우저 접속용으로 공개
+# - fastapi: 127.0.0.1:${FASTAPI_HOST_PORT} (기본 8001) → 개발 중 /docs 확인용. 같은 PC에서만 접근, 다른 프로젝트와 겹치면 .env에서 변경
+# - postgres·redis: 공개하지 않음 (Compose 내부 네트워크에서 서비스 이름으로만 접근)
+
+x-backend-env: &backend-env
+  TZ: Asia/Seoul                     # 로그 시각을 한국 시간으로 (gunicorn 로그가 UTC로 찍혀 9시간 차이로 보였음)
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+  DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_HOST: postgres            # localhost 아님: 서비스 이름
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
+  AI_SERVICE_URL: http://fastapi:8000
+  AI_READ_TIMEOUT: ${AI_READ_TIMEOUT:-300}
+  MEDIA_ROOT: /app/media
+  MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
+  IP_WEBCAMS: ${IP_WEBCAMS:-}
+  CAPTURE_SECONDS: ${CAPTURE_SECONDS:-8}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: Asia/Seoul
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # 컨테이너를 지워도 DB 유지 (T10)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  fastapi:
+    build:
+      context: ./ai_service
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
+        SKLEARN_VERSION: ${SKLEARN_VERSION:-1.9.1}
+        ULTRALYTICS_VERSION: ${ULTRALYTICS_VERSION:-8.4.211}
+        INSTALL_MEDIAPIPE: ${INSTALL_MEDIAPIPE:-1}
+    environment:
+      MODEL_DIR: /app/models
+      CONFIG_DIR: /app/configs
+      INFERENCE_DEVICE: ${INFERENCE_DEVICE:-cpu}
+      TARGET_PROCESS_FPS: ${TARGET_PROCESS_FPS:-15}
+      WINDOW_SECONDS: ${WINDOW_SECONDS:-2.5}   # 영상 분석 Window(초). day07 실시간 설정 5.0을 덮어씀
+      CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-}   # 비우면 day07 값(0.55)
+      ACTION_SET: ${ACTION_SET:-basic}         # basic(과제 6동작) / team(팀 재활 6동작)
+      MODEL_FILE: ${MODEL_FILE:-rf_action_baseline.joblib}
+      POSE_REFINER: ${POSE_REFINER:-none}      # none / mediapipe_heavy(팀 모델: 학습 때와 같은 관절)
+      HEAVY_MODEL_FILE: ${HEAVY_MODEL_FILE:-pose_landmarker_heavy.task}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
+      MAX_VIDEO_SECONDS: ${MAX_VIDEO_SECONDS:-60}
+    volumes:
+      # 큰 모델 파일은 이미지에 굽지 않고 읽기 전용으로 마운트 (Git에도 올리지 않음)
+      - ./ai_service/models:/app/models:ro
+      - ./ai_service/configs:/app/configs:ro
+    ports:
+      - "127.0.0.1:${FASTAPI_HOST_PORT:-8001}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request,sys; b=json.load(urllib.request.urlopen('http://localhost:8000/health',timeout=3)); sys.exit(0 if b['model_ready'] else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s     # YOLO 가중치 로드 시간
+    restart: unless-stopped
+
+  django:
+    build: ./backend
+    environment: *backend-env
+    volumes:
+      - media:/app/media    # 업로드 영상 (celery와 공유)
+    ports:
+      - "${DJANGO_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  celery:
+    build: ./backend        # django와 같은 이미지 · 같은 코드
+    command: celery -A config worker --loglevel=INFO --concurrency=1
+    # concurrency=1: FastAPI가 YOLO 객체를 Lock으로 한 번에 한 영상만 처리하므로 Worker도 1개로 맞춤
+    environment: *backend-env
+    volumes:
+      - media:/app/media    # django가 저장한 업로드 영상을 읽고, IP Webcam 수집 영상을 저장
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      django:
+        condition: service_started   # 마이그레이션은 django가 수행
+      fastapi:
+        condition: service_started   # 모델 로딩 중이면 Task가 503을 받고 재시도
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  media:

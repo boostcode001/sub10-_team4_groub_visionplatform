@@ -1,0 +1,10 @@
+# FastAPI AI 추론 서버
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.9
+joblib>=1.3
+numpy>=1.26,<3
+pandas>=2.0          # 기존 src/ 코드가 import 하는 경우 대비
+opencv-python-headless>=4.9
+lap>=0.5.12          # Ultralytics ByteTrack 의존성 (없으면 실행 중 자동 설치를 시도함)
+# ultralytics / torch / scikit-learn 은 Dockerfile에서 버전을 지정해 설치한다.

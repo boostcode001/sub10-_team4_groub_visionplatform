@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+tests/
+models/
+configs/
+.pytest_cache/

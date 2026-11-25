@@ -1,0 +1,39 @@
+# 비밀값
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# 모델·대용량 (README의 '모델 준비'로 복사)
+ai_service/models/*
+!ai_service/models/README.md
+
+# Django 실행 산출물
+backend/media/
+backend/staticfiles/
+backend/db.sqlite3
+
+# 영상
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# 모델·가중치는 위치와 상관없이 제외 (training/ 출력 폴더 포함)
+*.joblib
+*.pt
+*.task
+*.onnx
+ai_service/training/model_*/
+# 학습용 관절 CSV·압축 파일 (팀원 데이터, 공개 금지)
+*.zip
+ai_service/training/**/*.csv
+
+# 로컬 백업·IDE
+*.bak
+.vscode/
+.idea/
