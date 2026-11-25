@@ -1,0 +1,58 @@
+{% load static %}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>AI 동작 분석</title>
+</head>
+<body>
+  <h1>AI 동작 분석</h1>
+
+  <!--
+    [연결] 이 파일 위치: backend/analyses/templates/analyses/index.html
+      - settings.py TEMPLATES의 "APP_DIRS": True 덕분에 앱 안 templates/ 폴더를 자동으로 찾음
+    [연결] 이 화면을 여는 view: analyses/page_views.py → index()  (프론트 담당, A 가이드라인상 A는 만들지 않음)
+    [연결] 화면 주소: config/urls.py → path("", index)  (A 담당 파일이라 한 줄 추가를 A에게 요청)
+  -->
+
+  <form id="analysis-form">
+    <!--
+      [연결] serializers.py의 필드 이름과 같아야 함
+        - input_type : 업로드 방식 → "UPLOAD" (models.py AnalysisJob.InputType.UPLOAD)
+        - video_file : 영상 파일 필드 (tasks.py가 job.video_file.path 로 읽음)
+      로그인 기능이 없고 CSRF 미들웨어가 없어서 {% csrf_token %}은 넣지 않음
+    -->
+    <input type="hidden" name="input_type" value="UPLOAD">
+    <label>
+      영상 파일
+      <input type="file" id="video-input" name="video_file" accept=".mp4,.mov,.avi">
+    </label>
+    <button type="submit" id="start-btn">AI 분석 시작</button>
+  </form>
+
+  <p id="message"></p>
+
+  <h2>작업 기록</h2>
+  <table id="history-table" border="1" cellpadding="6">
+    <thead>
+      <tr>
+        <th>번호</th>
+        <th>자세</th>
+        <th>신뢰도</th>
+        <th>파일 유형</th>
+        <th>결과</th>
+        <th>처리 시간</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!--
+    [연결] JS 위치: backend/analyses/static/analyses/js/
+      - django.contrib.staticfiles가 앱 안 static/ 폴더를 자동으로 찾음
+      - Docker에서는 entrypoint.sh의 collectstatic → whitenoise가 제공
+    type="module" : analyses.js 안에서 api.js 함수를 import 하기 위해 필요
+  -->
+  <script type="module" src="{% static 'analyses/js/analyses.js' %}"></script>
+</body>
+</html>
